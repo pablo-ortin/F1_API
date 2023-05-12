@@ -1,115 +1,86 @@
-# Imports
-
-from peewee import *
-from fastapi import FastAPI
-from sqlalchemy import create_engine, MetaData, select
-from sqlalchemy import Column, Table
-from sqlalchemy.sql.sqltypes import Integer, String
-from starlette.responses import RedirectResponse
+from peewee import MySQLDatabase,PostgresqlDatabase, Model, CharField, PrimaryKeyField, IntegerField,DateField,fn,SQL
 
 
-# Database connection
+#Datos de conexion servidor MySQL
+DBNAME = 'dl_db'
+DBUSER = 'myuser'
+DBKEY = 'test'
 
-database = MySQLDatabase(
-    'api',
-    user= 'root', password='henry420794',
-    host='localhost', port=3306)
+"""db = PostgresqlDatabase(DBNAME,user = DBUSER, password = DBKEY, host ='localhost',port = 5432)"""
 
+db = PostgresqlDatabase(DBNAME,user = DBUSER, password = DBKEY, host ='tcp-mo5.mogenius.io',port = 50936)
+#tcp-mo5.mogenius.io:50936
 
-engine = create_engine("mysql+pymysql://root:henry420794@localhost:3306/api")
-
-meta = MetaData()
-
-conn = engine.connect()
-
-
-# Tables
-
-circuits = Table('circuits', meta, Column('circuitId', Integer, primary_key=True), 
-                                Column('circuitRef', String(255)),
-                                Column('name', String(255)),
-                                Column('location', String(255)),
-                                Column('country', String(255)),
-)
-constructors = Table('constructors', meta, Column('constructorId', Integer, primary_key=True), 
-                                Column('constructorRef', String(255)),
-                                Column('name', String(255)),
-                                Column('nationality', String(255)),
-                                
-)
-
-drivers = Table('drivers', meta, Column('driverId', Integer, primary_key=True), 
-                                Column('driverRef', String(255)),
-                                Column('number', String(255)),
-                                Column('code', String(255)),
-                                Column('name', String(255)),
-                                Column('surname', String(255)),
-                                Column('nationality', String(255)),
-)
+class PI1(Model):
+    class Meta:
+        database = db
 
 
+#Creacion de tablas para poder acceder a los datos de la db usando Peewee
 
-races = Table('races', meta, Column('raceId', Integer, primary_key=True), 
-                                Column('year', Integer),
-                                Column('round', Integer),
-                                Column('circuitId', Integer),
-                                Column('name', String(255)),
-                                Column('date', String(255)),
-                               
-)
+#Tabla Driver
+class Driver(PI1):
+    idDriver = PrimaryKeyField()
+    dName = CharField()
+    dSurname = CharField()
 
-results = Table('results', meta, Column('resultId', Integer, primary_key=True), 
-                                Column('raceId', Integer),
-                                Column('driverId', Integer),
-                                Column('constructorId', Integer),
-                                Column('number', String(255)),
-                                Column('grid', String(255)),
-                                Column('position', String(255)),
-                                Column('positionText', String(255)),
-                                Column('positionOrder', String(255)),
-                                Column('points', Integer),
-)
+#Tabla Constructor
+class Constructor(PI1):
+    idConstructor = PrimaryKeyField()
+    cName = CharField()
+    nationality = CharField()
+#Tabla Race
+class Race(PI1):
+    idRace = PrimaryKeyField()
+    yr = IntegerField()
+    idTrack = IntegerField()
+    rName = CharField()
+    rDate = DateField()
+Race.drop_table()
+print(db.get_tables())
+#Tabla Result
+class Result(PI1):
+    idResult = PrimaryKeyField()
+    idRace = IntegerField()
+    idDriver = IntegerField()
+    idConstructor = IntegerField()
+    rPosition = CharField()
+    points = IntegerField()
 
-meta.create_all(engine)
-
-# App
-app = FastAPI(
-    title='API F1', description='F1 Data ')
-
-
-
-# Endpoints
-
-
-@app.get("/")
-def main():
-    return RedirectResponse(url="/docs/")
-
-@app.get('/circuits')
-def tabla_circuits():
-    return conn.execute(circuits.select()).fetchall()
+#Tabla Track
+class Track(PI1):
+    idTrack = PrimaryKeyField()
+    tName = CharField()
+    location = CharField()
+    country = CharField()
 
 
-@app.get('/constructors')
-def tabla_constructors():
-    return conn.execute(constructors.select()).fetchall()
+#Funciones
 
-@app.get('/drivers')
-def tabla_drivers():
-    return conn.execute(drivers.select()).fetchall()
+#Año con mas carreras
+def yearMostRaced():
+    ymr = Race.select(Race.yr, fn.count(Race.idRace).alias('races')).order_by(SQL('races').desc()).group_by(Race.yr).limit(1)
+    return ymr[0].yr
 
-@app.get('/races')
-def tabla_races():
-    return conn.execute(races.select()).fetchall()
+#Circuito con mas carreras
+def trackMostRaced():
+    tmr = Race.select(Track,Race.rName, fn.count(Race.idRace).alias('races')).join(Track,on=(Race.idTrack == Track.idTrack)).order_by(SQL('races').desc()).group_by(Race.idTrack).limit(1)
+    return tmr[0].track.tName
 
-@app.get('/results')
-def tabla_results():
-    return  conn.execute(results.select()).fetchall()
 
-@app.get('/queries')
-def queries():
-    views = database.get_views()
-    return 'Queries', views
+#Piloto con mas victorias
+def driverMostWins():
+    dmw = Result.select(Driver,fn.count(Result.rPosition).alias('wins')).join(Driver, on=(Result.idDriver == Driver.idDriver)).where(Result.rPosition==1).order_by(SQL('wins').desc()).group_by(Driver.idDriver).limit(1)
+    return dmw[0].driver.dName+' '+ dmw[0].driver.dSurname
+
+
+#Piloto con mas puntos cuyo constructor sea "British" o "American"
+def driverConsAmeBri():
+    dcab = Result.select(fn.sum(Result.points).alias('total_score'),Driver.dName,Driver.dSurname,Constructor).join(Driver, on=(Result.idDriver == Driver.idDriver)).join(Constructor,on=(Result.idConstructor == Constructor.idConstructor)).where((Constructor.nationality == 'British') | (Constructor.nationality == 'American')).group_by(Result.idDriver).order_by(SQL('total_score').desc()).limit(1)
+    return dcab[0].driver.dName+' '+ dcab[0].driver.dSurname
+
+
+
 
 
 
